@@ -1,10 +1,21 @@
 #!/usr/bin/python3
 
-import subprocess, shlex, os, unicodedata, taglib, multiprocessing, argparse
+import argparse
+import multiprocessing
+import os
+import shlex
+import subprocess
+import taglib
+import unicodedata
 from configparser import ConfigParser
 
-norm = lambda x: unicodedata.normalize('NFKD', x).encode('ASCII', 'ignore').decode().replace("'", " ").replace('"', ' ')
-str_to_list = lambda x: [y for y in x.splitlines() if y]
+
+def norm(x):
+    return unicodedata.normalize('NFKD', x).encode('ASCII', 'ignore').decode().replace("'", " ").replace('"', ' ')
+
+
+def str_to_list(x):
+    return [y for y in x.splitlines() if y]
 
 
 def parse_arg_main():
@@ -16,19 +27,22 @@ def parse_arg_main():
                         action="store_true")
     return vars(parser.parse_args())
 
+
 def parse_inifile(f):
     c = ConfigParser()
     c.read(f)
     cd = c['DEFAULT']
     obj = type("", (), {})()
-    obj.titles = str_to_list( cd['titles'] )
+    obj.titles = str_to_list(cd['titles'])
     obj.album = cd['album']
     obj.year = cd['year']
     obj.artist = cd['artist']
     obj.offset = int(cd['offset'])
     return obj
 
+
 def sample_id3():
+    # Returns a very simple dummy 'id3' structure for example
     d = type("", (), {})()
     d.titles = ["Titre 1", "Titre 2", "Titre 3"]
     d.album = "My album"
@@ -37,25 +51,35 @@ def sample_id3():
     d.offset = 1
     return d
 
+
 def w_inifile(id3, path):
+    # Writes an .ini 'path' file with the 'id3' structure
     with open(path, 'x') as f:
         c = ConfigParser()
         d = {
             'titles': "\n".join(id3.titles),
-            'album' : id3.album,
-            'year'  : id3.year,
+            'album': id3.album,
+            'year': id3.year,
             'artist': id3.artist,
             'offset': id3.offset,
         }
         c['DEFAULT'] = d
         c.write(f)
 
+
 def p_id3(id3):
+    # Prints an "id3" structure with an human readable way
     print("artist = %s\nalbum=%s\nyear=%s\ntitles=\n %s" % (
-        id3.artist, id3.album, id3.year, "\n ".join(id3.titles) ) )
+        id3.artist, id3.album, id3.year, "\n ".join(id3.titles)))
 
 
 def do_cmd(i, o, fmt):
+    """
+    Actually encode the 'i' file with the 'fmt' format into 'o'
+    Needs :
+      - flac (https://xiph.org/flac/)
+      - lame (http://lame.sourceforge.net/)
+    """
     if os.path.exists(o):
         raise FileExistsError
     if fmt == 'flac':
@@ -67,22 +91,27 @@ def do_cmd(i, o, fmt):
     print("Encoding %s" % o)
     subprocess.run(shlex.split(cmd))
 
+
 def do_id3(f, _n, id3, title):
+    # Writes the 'id3' structure + 'title' + '_n' track number into the 'f' file
     print("ID3 on %s, track %s, title %s" % (f, _n, title))
     s = taglib.File(f)
-    s.tags["ALBUM"]  = id3.album
+    s.tags["ALBUM"] = id3.album
     s.tags["ARTIST"] = id3.artist
-    s.tags["DATE"]   = str(id3.year)
+    s.tags["DATE"] = str(id3.year)
     s.tags["TRACKNUMBER"] = '%s/%s' % (_n, len(id3.titles))
-    s.tags["TITLE"]  = title
+    s.tags["TITLE"] = title
     print("%s --> %s" % (f, s.tags))
     s.save()
 
+
 def do_file(dirname, fmt, n, id3):
-    _n = str(n+id3.offset).zfill(2)
+    # Encodes the "track{_n}.cdda.wav" file into 'fname' derived from 'title' and 'fmt'
+    # Adds the 'id3' tag
+    _n = str(n + id3.offset).zfill(2)
     wavname = "track%s.cdda.wav" % _n
     fname = "%s - %s" % (_n, norm(id3.titles[n]))
-    outfile = dirname+"/"+fmt+"/"+fname+"."+fmt
+    outfile = dirname + "/" + fmt + "/" + fname + "." + fmt
     if not os.path.isfile(wavname):
         raise FileNotFoundError(wavname)
     try:
@@ -93,22 +122,22 @@ def do_file(dirname, fmt, n, id3):
 
 
 def main(id3):
+    # Encodes the files from 'track{n}.cdda.wav files to /flac and /mp3
 
     dirname = norm(id3.album)
 
     try:
-        os.makedirs(dirname+"/mp3")
+        os.makedirs(dirname + "/mp3")
     except FileExistsError:
         pass
     try:
-        os.makedirs(dirname+"/flac")
+        os.makedirs(dirname + "/flac")
     except FileExistsError:
         pass
 
     for n in range(len(id3.titles)):
-        p = multiprocessing.Process(target=do_file, args=(dirname, 'mp3', n, id3)).start()
-        p = multiprocessing.Process(target=do_file, args=(dirname, 'flac', n, id3)).start()
-
+        multiprocessing.Process(target=do_file, args=(dirname, 'mp3', n, id3)).start()
+        multiprocessing.Process(target=do_file, args=(dirname, 'flac', n, id3)).start()
 
 
 if __name__ == "__main__" and not __doc__:
@@ -120,6 +149,3 @@ if __name__ == "__main__" and not __doc__:
         w_inifile(id3, args['inifile'])
     else:
         main(id3)
-
-
-
